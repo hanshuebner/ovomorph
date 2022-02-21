@@ -16,5 +16,8 @@
   :description "Apple 2 I/O-Server for Apple2-RPi-IO card"
   :long-description ""
 
-  :depends-on (:alexandria :cl-gpiod)
-  :components ())
+  :depends-on (:alexandria :cl-gpiod :flexi-streams)
+  :components ((:file "a2-comm")
+               (:file "a2-server")
+               (:file "disk")
+               (:file "time")))
