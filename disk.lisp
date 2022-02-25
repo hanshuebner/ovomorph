@@ -11,6 +11,11 @@
 
 (defvar *drives* (make-hash-table))
 
+(defun close-all ()
+  (loop for file being the hash-values of *drives*
+        do (close file))
+  (setf *drives* (make-hash-table)))
+
 (defun drive-file (drive)
   (make-pathname :name (format nil "apple2-drive-~A" drive) :type "img"))
 
@@ -23,7 +28,7 @@
   `(let* ((block-low (a2-comm:receive-byte))
           (block-high (a2-comm:receive-byte))
           (,drive (ash (a2-comm:receive-byte) -7))
-          (,block-number (logior block-low (ash 8 block-high))))
+          (,block-number (logior block-low (ash block-high 8))))
      ,@body))
 
 (a2-server:define-command (read-block 1)
