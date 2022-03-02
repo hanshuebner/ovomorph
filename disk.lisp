@@ -22,7 +22,10 @@
 (defun drive-stream (drive)
   (or (gethash drive *drives*)
       (setf (gethash drive *drives*)
-            (open (drive-file drive) :element-type '(unsigned-byte 8)))))
+            (open (drive-file drive)
+                  :element-type '(unsigned-byte 8)
+                  :direction :io
+                  :if-exists :overwrite ))))
 
 (defmacro with-drive-and-block-number ((drive block-number) &body body)
   `(let* ((block-low (a2-comm:receive-byte))
@@ -42,7 +45,9 @@
 (a2-server:define-command (write-block 2)
   (with-drive-and-block-number (drive block-number)
     (a2-server:log "Write drive ~D block ~D" drive block-number)
-    (let ((buf (a2-comm:receive-bytes +block-size+)))
-      (file-position (drive-stream drive) (* block-number +block-size+))
-      (write-sequence buf (drive-stream drive)))))
+    (let ((buf (a2-comm:receive-bytes +block-size+))
+          (stream (drive-stream drive)))
+      (file-position stream (* block-number +block-size+))
+      (write-sequence buf stream)
+      (finish-output stream))))
 
