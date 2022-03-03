@@ -1,0 +1,17 @@
+Seen from Apple 2:
+
+To send a byte:
+
+Wait for input flag bit 6 to go low.
+Output byte.
+Set output flag bit 0 to low.
+Wait for input flag bit 6 to go high.
+Set output flag bit 0 to high.
+
+To receive a byte:
+
+Set output flag bit 1 to low.
+Wait for input flag bit 7 to go low.
+Input byte.
+Set output flag bit 1 to high.
+Wait for input flag bit 7 to go high.
