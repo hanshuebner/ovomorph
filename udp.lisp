@@ -13,6 +13,9 @@
   (declare (ignore hotp))
   (lparallel.queue:pop-queue *receive-queue*))
 
+(defun byte-available-p ()
+  (not (lparallel.queue:queue-empty-p *receive-queue*)))
+
 (defun send-byte (byte &optional hotp)
   (declare (ignore hotp))
   (let ((buf (make-array 1 :initial-element byte :element-type '(unsigned-byte 8))))

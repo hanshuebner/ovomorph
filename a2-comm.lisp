@@ -9,7 +9,8 @@
    #:receive-string
    #:send-string
    #:receive-bytes
-   #:send-bytes))
+   #:send-bytes
+   #:byte-available-p))
 
 (in-package :a2-comm)
 

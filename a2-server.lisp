@@ -47,6 +47,5 @@
   (terpri))
 
 (define-command (reset 0)
-  (log "Reset request")
-  (a2-comm:send-byte 0))
+  (log "Reset request"))
 

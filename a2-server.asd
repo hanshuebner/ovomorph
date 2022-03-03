@@ -30,4 +30,5 @@
                (:file "gpio")
                (:file "a2-server")
                (:file "disk")
-               (:file "time")))
+               (:file "time")
+               (:file "shell")))
