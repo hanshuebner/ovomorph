@@ -47,5 +47,5 @@
 (defun open-gpio ()
   (when (boundp '*chip*)
     (gpiod:chip-close *chip*))
-  (setf *chip* (cl-gpiod:open-chip apple2-rpi-io-gpio "a2-server")))
+  (setf *chip* (cl-gpiod:open-chip apple2-rpi-io-gpio "ovomorph")))
 

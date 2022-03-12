@@ -1,4 +1,4 @@
-# a2-server - I/O-server for the Apple2-IO-RPi board written in Common Lisp
+# ovomorph - I/O-server for the Apple2-IO-RPi board written in Common Lisp
 
 This is an alternative implementation of an I/O server for the Apple
 II utilizing the

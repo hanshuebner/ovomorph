@@ -1,13 +1,13 @@
 ;; -*- Lisp -*-
 
-(defpackage :a2-server
+(defpackage :ovomorph
   (:use :cl :alexandria)
   (:shadow :log)
   (:export
    #:define-command
    #:log))
 
-(in-package :a2-server)
+(in-package :ovomorph)
 
 
 ;; Commands used by the go implementation:
