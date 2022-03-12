@@ -2,45 +2,46 @@
 
 (in-package :a2-comm)
 
+(define-condition timeout-while-trying-to-send (error) ())
+(define-condition timeout-while-trying-to-receive (error) ())
+
 (cl-gpiod:define-gpio apple2-rpi-io-gpio
   :chip-name "gpiochip0"
   :ports ((data-out :lines (5 11 9 10 22 27 17 4)
                     :direction :output)
           (data-in :lines (12 16 20 21 26 19 13 6)
                    :direction :input)
-          (in-write :line 23
-                    :event :falling-edge
-                    :flags (:active-low))
-          (in-read :line 18
-                   :event :falling-edge
-                   :flags (:active-low))
-          (out-read :line 25
-                    :direction :output)
-          (out-write :line 24
-                     :direction :output)))
+          (write-req :line 23
+                     :event :falling-edge)
+          (read-req :line 18
+                    :event :falling-edge)
+          (write-ack :line 25
+                     :direction :output)
+          (read-ack :line 24
+                    :direction :output)))
 
 (defun receive-byte (&optional hotp)
-  (setf (out-read) nil)
+  (setf (write-ack) nil)
   (if hotp
-      (loop while (in-write))
-      (unless (cl-gpiod:wait-for-event-with-timeout 'in-write +apple2-timeout+)
-        (throw 'timeout-while-trying-to-receive nil)))
+      (loop while (write-req))
+      (unless (cl-gpiod:wait-for-event-with-timeout 'write-req +apple2-timeout+)
+        (when (write-req)
+          (signal 'timeout-while-trying-to-receive))))
   (let ((byte (data-in)))
-    (setf (out-read) t)
-    (loop while (not (in-write)))
+    (setf (write-ack) t)
+    (loop while (not (write-req)))
+    (setf (write-ack) nil)
     byte))
 
 (defun send-byte (byte &optional hotp)
-  (when (not (in-write))
-    (throw 'incoming-byte-while-writing nil))
   (if hotp
-      (loop while (in-read))
-      (unless (cl-gpiod:wait-for-event-with-timeout 'in-read +apple2-timeout+)
-        (throw 'timeout-while-trying-to-send nil)))
+      (loop while (read-req))
+      (unless (cl-gpiod:wait-for-event-with-timeout 'read-req +apple2-timeout+)
+        (signal 'timeout-while-trying-to-send)))
   (setf (data-out) byte)
-  (setf (out-write) nil)
-  (loop while (not (in-read)))
-  (setf (out-write) t))
+  (setf (read-ack) nil)
+  (loop while (not (read-req)))
+  (setf (read-ack) t))
 
 (defvar *chip*)
 
