@@ -2,13 +2,13 @@
 
 (in-package :cl-user)
 
-(defpackage :a2-server.system
+(defpackage :ovomorph.system
   (:use :cl :asdf))
 
-(in-package :a2-server.system)
+(in-package :ovomorph.system)
 
-(defsystem :a2-server
-  :name "a2-server"
+(defsystem :ovomorph
+  :name "ovomorph"
   :author "Hans Hübner <hans.huebner@gmail.com>"
   :version "0.0.1"
   :maintainer "Hans Hübner <hans.huebner@gmail.com>>"
@@ -28,7 +28,7 @@
                (:file "udp")
                #+linux
                (:file "gpio")
-               (:file "a2-server")
+               (:file "ovomorph")
                (:file "disk")
                (:file "time")
                (:file "shell")))

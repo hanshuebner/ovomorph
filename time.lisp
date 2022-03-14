@@ -31,7 +31,7 @@
                                   2000
                                   1900)))))
 
-(a2-server:define-command (get-time 3)
+(ovomorph:define-command (get-time 3)
   (let ((prodos-time (universal-to-prodos-time (get-universal-time))))
     (a2-comm:send-byte (ldb (byte 8 0) prodos-time))
     (a2-comm:send-byte (ldb (byte 8 8) prodos-time))

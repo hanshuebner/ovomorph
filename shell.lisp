@@ -12,7 +12,7 @@
     (loop for i below len
           do (write-byte (logior (aref buf i) #x80) out))))
 
-(a2-server:define-command (shell 9)
+(ovomorph:define-command (shell 9)
   (format t "Shell started~%")
   ; (trace a2-comm:receive-byte a2-comm:send-byte a2-comm:byte-available-p flex:peek-byte pty)
   (let (reader)

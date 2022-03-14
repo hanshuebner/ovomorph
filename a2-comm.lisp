@@ -10,7 +10,10 @@
    #:send-string
    #:receive-bytes
    #:send-bytes
-   #:byte-available-p))
+   #:byte-available-p
+   #:incoming-byte-while-writing
+   #:timeout-while-trying-to-receive
+   #:timeout-while-trying-to-send))
 
 (in-package :a2-comm)
 
