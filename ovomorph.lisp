@@ -4,6 +4,7 @@
   (:use :cl :alexandria)
   (:shadow :log)
   (:export
+   #:main
    #:define-command
    #:log))
 
@@ -56,3 +57,6 @@
 (define-command (reset 0)
   (log "Reset request"))
 
+(defun main (argv)
+  (log "ovomorph server is starting")
+  (serve))
