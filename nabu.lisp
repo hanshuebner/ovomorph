@@ -37,6 +37,8 @@
                    crc (logand (logxor crc (aref *crc-table* index)) #xffff)))
         finally (return crc)))
 
+(defconstant +escape+ #x10)
+
 (defun add-crc (packet)
   (let ((crc (crc16 packet))
         (packet-with-crc (copy-array packet :adjustable t :fill-pointer (length packet))))
@@ -110,7 +112,7 @@
           (throw 'main-loop nil)))))
 
 (defun expect-confirmation (stream)
-  (and (expect stream #x10)
+  (and (expect stream +escape+)
        (expect stream #x06)))
 
 (defun send-packet-prolog (stream)
@@ -146,6 +148,12 @@
                              s)
              (write-sequence payload s))))
 
+(defun write-escaped (packet stream)
+  (loop for char across packet
+        do (write-byte char stream)
+        when (eql char +escape+)
+          do (write-byte char stream)))
+
 (defun send-segment-packet (stream segment packet)
   (block nil
     (let ((pathname (make-segment-pathname segment)))
@@ -160,11 +168,11 @@
           (let* ((payload (make-array +packet-size+ :element-type '(unsigned-byte 8)))
                  (length (read-sequence payload file)))
             (send-packet-prolog stream)
-            (write-sequence (make-packet segment
-                                         packet
-                                         offset
-                                         (>= (+ offset length) (file-length file))
-                                         payload)
+            (write-escaped (make-packet segment
+                                        packet
+                                        offset
+                                        (>= (+ offset length) (file-length file))
+                                        payload)
                             stream)
             (send-packet-epilog stream)))))))
 
