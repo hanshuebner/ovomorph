@@ -31,4 +31,5 @@
                (:file "ovomorph")
                (:file "disk")
                (:file "time")
-               (:file "shell")))
+               (:file "shell")
+               (:file "nabu")))

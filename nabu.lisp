@@ -199,6 +199,13 @@
     (format t "; channel: ~A~%" channel)
     (send-confirm stream)))
 
+(define-handler #xa0 chat-started (stream)
+  (with-open-stream (stream (flex:make-flexi-stream stream))
+    (loop for c across "Hello World"
+          do (write-char c stream)
+             (finish-output stream)
+             (sleep 0.03))))
+
 (defun handle-connection (connection)
   (let ((stream (usocket:socket-stream connection)))
     (format t "; connection established~%")
