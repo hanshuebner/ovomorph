@@ -199,14 +199,21 @@
     (format t "; channel: ~A~%" channel)
     (send-confirm stream)))
 
+(defun make-message ()
+  (make-string-input-stream (format nil "Current time: ~A~%" (get-universal-time))))
+
 (define-handler #xa0 chat-started (stream)
   (with-open-stream (stream (flex:make-flexi-stream stream))
-    (format stream "Hello!")
-    (finish-output stream)
-    (loop
-      (format t "Chat read: ~A~%" (char-code (read-char stream)))
-      (write-char #\! stream)
-      (finish-output stream))))
+    (let ((message-stream (make-message)))
+      (loop
+        (when-let ((c (read-char-no-hang stream)))
+          (format t "Chat read: ~A~%" (char-code c)))
+        (sleep .1)
+        (if-let ((c (read-char message-stream nil)))
+          (progn 
+            (write-char c stream)
+            (finish-output stream))
+          (setf message-stream (make-message)))))))
 
 (defun handle-connection (connection)
   (let ((stream (usocket:socket-stream connection)))
