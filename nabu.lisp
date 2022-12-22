@@ -201,10 +201,12 @@
 
 (define-handler #xa0 chat-started (stream)
   (with-open-stream (stream (flex:make-flexi-stream stream))
-    (loop for c across "Hello World"
-          do (write-char c stream)
-             (finish-output stream)
-             (sleep 0.03))))
+    (format stream "Hello!")
+    (finish-output stream)
+    (loop
+      (format t "Chat read: ~A~%" (char-code (read-char stream)))
+      (write-char #\! stream)
+      (finish-output stream))))
 
 (defun handle-connection (connection)
   (let ((stream (usocket:socket-stream connection)))
