@@ -220,11 +220,28 @@
       (format t "; closing connection~%")
       (usocket:socket-close connection))))
 
-(defun create-server (&optional (port 5816))
-  (let* ((socket (usocket:socket-listen "127.0.0.1" port)))
-    (unwind-protect
+(defvar *server* nil)
+(defvar *listen-socket*)
+
+(defun run-server (port)
+  (let* ((*listen-socket* (usocket:socket-listen "127.0.0.1" port)))
+    (format t "; NABU listener on port ~A starting~%" port)
+    (handler-case
          (loop
-           (let ((connection (usocket:socket-accept socket :element-type '(unsigned-byte 8))))
-             (handle-connection connection)))
-      (format t "; closing listening socket~%")
-      (usocket:socket-close socket))))
+           (let ((connection (usocket:socket-accept *listen-socket* :element-type '(unsigned-byte 8))))
+             (bt:make-thread (lambda () (handle-connection connection)))))
+      (usocket:bad-file-descriptor-error (e)
+        (declare (ignore e))
+        (format t "; NABU listener on port ~A ending~%" port)))))
+
+(defun stop-server ()
+  (when *server*
+    (bt:interrupt-thread *server* (lambda () (usocket:socket-close *listen-socket*)))
+    (loop while (bt:thread-alive-p *server*)
+          do (format t "; waiting for listener to shut down~%")
+             (sleep 1))
+    (setf *server* nil)))
+
+(defun create-server (&optional (port 5816))
+  (stop-server)
+  (setf *server* (bt:make-thread (lambda () (run-server port)) :name (format nil "NABU Listener on port ~A" port))))
