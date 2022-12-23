@@ -1,4 +1,4 @@
-# ovomorph - I/O-server for the Apple2-IO-RPi board written in Common Lisp
+# ovomorph - I/O-server for vintage computers written in Common Lisp
 
 This is an alternative implementation of an I/O server for the Apple
 II utilizing the
@@ -6,6 +6,10 @@ II utilizing the
 Terence J. Boldt.  It is developed using [SBCL](http://www.sbcl.org/)
 but uses compatibility libraries for portability to other Common Lisp
 implementations.
+
+Ovomorph also contains network adapter code for the NABU personal
+computer.  Eventually, it might contain block I/O facilities for the
+NABU like it does for the Apple II.
 
 ## Installation
 
