@@ -204,16 +204,22 @@
 
 (define-handler #xa0 chat-started (stream)
   (with-open-stream (stream (flex:make-flexi-stream stream))
-    (let ((message-stream (make-message)))
+    (let ((server-message-stream (make-message))
+          (client-message-stream (make-string-output-stream)))
       (loop
         (when-let ((c (read-char-no-hang stream)))
-          (format t "Chat read: ~A~%" (char-code c)))
-        (sleep .1)
-        (if-let ((c (read-char message-stream nil)))
+          (if (member c '(#\NewLine #\Linefeed #\Return))
+              (let ((client-message (get-output-stream-string client-message-stream)))
+                (format t "Client message: ~A~%" client-message)
+                (setf client-message-stream (make-string-output-stream)
+                      server-message-stream (make-string-input-stream (format nil "~%~A~%" client-message))))
+              (princ c client-message-stream)))
+        (if-let ((c (read-char server-message-stream nil)))
           (progn 
             (write-char c stream)
-            (finish-output stream))
-          (setf message-stream (make-message)))))))
+            (finish-output stream)
+            (sleep .1))
+          (setf server-message-stream (make-message)))))))
 
 (defun handle-connection (connection)
   (let ((stream (usocket:socket-stream connection)))
