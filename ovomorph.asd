@@ -20,6 +20,7 @@
                :usocket
                :usocket-server
                :lparallel
+               :binary-types
                #+linux
                :cl-gpiod
                :flexi-streams)

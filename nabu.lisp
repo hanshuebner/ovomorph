@@ -260,3 +260,25 @@
 (defun create-server (&optional (port 5816))
   (stop-server)
   (setf *server* (bt:make-thread (lambda () (run-server port)) :name (format nil "NABU Listener on port ~A" port))))
+
+(binary-types:define-unsigned le-word 2 :little-endian)
+(binary-types:define-unsigned segment-number 3 :big-endian)
+
+(binary-types:define-binary-class packet-header ()
+  ((segment-number :binary-type segment-number)
+   (packet-number :binary-type binary-types:u8)))
+
+(defun dump-pak (pathname)
+  (with-open-file (f pathname :element-type '(unsigned-byte 8))
+    ;; file id bytes
+    (handler-case
+      (loop
+        (let* ((raw-length (binary-types:read-binary 'le-word f))
+               (packet (make-array raw-length :element-type '(unsigned-byte 8))))
+          (assert (eql (read-sequence packet f) raw-length))
+          (format t "LENGTH: ~A~%" raw-length)
+          (flex:with-input-from-sequence (header-stream packet)
+            (let ((header (binary-types:read-binary 'packet-header header-stream)))
+              (format t "SEGMENT: ~A PACKET: ~A~%"
+                      (slot-value header 'segment-number) (slot-value header 'packet-number))))))
+      (end-of-file ()))))
