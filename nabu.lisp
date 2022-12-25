@@ -100,8 +100,11 @@
   (write-sequence (add-crc *time-packet*) stream)
   (send-packet-epilog stream))
 
-(defun make-segment-pathname (segment)
-  (merge-pathnames (make-pathname :name (format nil "~6,'0D" segment) :type "nabu")))
+(defvar *segment-directory* *default-pathname-defaults*)
+(defvar *segment-type* :nabu)
+
+(defun make-segment-pathname (segment type)
+  (merge-pathnames (make-pathname :name (format nil "~6,'0D" segment) :type type) *segment-directory*))
 
 (defun expect (stream expected-byte)
   (finish-output stream)
@@ -124,11 +127,24 @@
 
 (defconstant +packet-size+ 991)
 
-(defun make-packet (segment-number
-                    packet-number
-                    offset
-                    last-packet-p
-                    payload)
+(defun write-escaped (packet stream)
+  (loop for char across packet
+        do (write-byte char stream)
+        when (eql char +escape+)
+          do (write-byte char stream)))
+
+(defmethod file-position-at-packet ((type (eql :nabu)) file packet)
+  (let ((offset (* packet +packet-size+)))
+    (unless (file-position file offset)
+      (format t "; could not seek to packet position ~A~%" offset)
+      (throw 'main-loop nil))))
+
+(defmethod make-packet ((type (eql :nabu))
+                        segment-number
+                        packet-number
+                        offset
+                        last-packet-p
+                        payload)
   (add-crc (flex:with-output-to-sequence (s)
              (write-sequence `#(,(ldb (byte 8 16) segment-number)
                                 ,(ldb (byte 8 8) segment-number)
@@ -142,34 +158,27 @@
                                   (if last-packet-p #x10 #x00)
                                   (if (zerop packet-number) #x41 #x00))
                                 ,(ldb (byte 8 0) packet-number)
-                                ,(ldb (byte 8 8) packet-number)
+                                ,(ldb (byte 8 16) offset)
                                 ,(ldb (byte 8 8) offset)
                                 ,(ldb (byte 8 0) offset))
                              s)
              (write-sequence payload s))))
 
-(defun write-escaped (packet stream)
-  (loop for char across packet
-        do (write-byte char stream)
-        when (eql char +escape+)
-          do (write-byte char stream)))
-
-(defun send-segment-packet (stream segment packet)
+(defun send-segment-packet (stream segment-number packet-number &aux (type *segment-type*))
   (block nil
-    (let ((pathname (make-segment-pathname segment)))
+    (let ((pathname (make-segment-pathname segment-number (string-downcase type))))
       (with-open-file (file pathname :direction :input :if-does-not-exist nil :element-type '(unsigned-byte 8))
         (unless file
           (format t "; file ~A not found~%" pathname)
           (throw 'main-loop nil))
-        (let ((offset (* packet +packet-size+)))
-          (unless (file-position file offset)
-            (format t "; could not seek to packet position ~A~%" (* packet +packet-size+))
-            (throw 'main-loop nil))
+        (let ((offset (* packet-number +packet-size+)))
+          (file-position-at-packet type file packet-number)
           (let* ((payload (make-array +packet-size+ :element-type '(unsigned-byte 8)))
                  (length (read-sequence payload file)))
             (send-packet-prolog stream)
-            (write-escaped (make-packet segment
-                                        packet
+            (write-escaped (make-packet type
+                                        segment-number
+                                        packet-number
                                         offset
                                         (>= (+ offset length) (file-length file))
                                         payload)
@@ -180,17 +189,18 @@
   (send-ack stream)
   (finish-output stream)
   (let* ((request (read-long stream))
-         (segment (ldb (byte 8 8) request))
+         (segment-number (ldb (byte 8 8) request))
          (packet (ldb (byte 8 0) request)))
     (send-confirm stream)
     (if (= request #x7fffff00)
         (send-time-packet stream)
-        (send-segment-packet stream segment packet))))
+        (send-segment-packet stream segment-number packet))))
+
+(defvar *select-channel-p* nil)
 
 (define-handler #x01 channel-status (stream)
-  #+ (or)
-  (write-sequence #(#x9f #x10 #xe1) stream)
-  (write-sequence #(#x1f #x10 #xe1) stream))
+  (write-byte (logior (if *select-channel-p* #x80 #x00) #x1f) stream)
+  (write-sequence #(#x10 #xe1) stream))
 
 (define-handler #x85 change-channel (stream)
   (write-sequence #(#x10 #x06) stream)
@@ -221,19 +231,23 @@
             (sleep .1))
           (setf server-message-stream (make-message)))))))
 
-(defun handle-connection (connection)
-  (let ((stream (usocket:socket-stream connection)))
-    (format t "; connection established~%")
-    (unwind-protect
-         (handler-case
-             (loop
-               (catch 'main-loop
-                 (handle-byte stream (read-byte stream))
-                 (finish-output stream)))
-           (error (e)
-             (format t "; caught error ~A~%" e)))
-      (format t "; closing connection~%")
-      (usocket:socket-close connection))))
+(define-handler #xa1 echo-line (stream)
+  (with-open-stream (stream (flex:make-flexi-stream stream))
+    (loop for line = (read-line stream)
+          do (format t "Received [~A]~%" line)
+             (princ line stream)
+             (terpri stream)
+             (finish-output stream))))
+
+(defun handle-nabu (stream)
+  (handler-case
+      (loop
+        (catch 'main-loop
+          (handle-byte stream (read-byte stream))
+          (finish-output stream)))
+    #+ (or)
+    (error (e)
+      (format t "; caught error ~A~%" e))))
 
 (defvar *server* nil)
 (defvar *listen-socket*)
@@ -244,7 +258,13 @@
     (handler-case
          (loop
            (let ((connection (usocket:socket-accept *listen-socket* :element-type '(unsigned-byte 8))))
-             (bt:make-thread (lambda () (handle-connection connection)))))
+             (bt:make-thread (lambda ()
+                               (let ((stream (usocket:socket-stream connection)))
+                                 (format t "; connection established~%")
+                                 (unwind-protect
+                                      (handle-nabu stream)
+                                   (format t "; closing connection~%")
+                                   (usocket:socket-close connection)))))))
       (usocket:bad-file-descriptor-error (e)
         (declare (ignore e))
         (format t "; NABU listener on port ~A ending~%" port)))))
@@ -261,24 +281,52 @@
   (stop-server)
   (setf *server* (bt:make-thread (lambda () (run-server port)) :name (format nil "NABU Listener on port ~A" port))))
 
-(binary-types:define-unsigned le-word 2 :little-endian)
+(defun handle-serial-port (port-name)
+  (cserial-port:with-serial (serial port-name :baud-rate 115200 :stop-bits 2)
+    (handle-nabu (sb-sys:make-fd-stream (cserial-port::serial-fd serial)
+                                        :input t :output t
+                                        :element-type '(unsigned-byte 8)))))
+
+(binary-types:define-unsigned packet-length 2 :little-endian)
+
 (binary-types:define-unsigned segment-number 3 :big-endian)
+(binary-types:define-unsigned tier 4 :big-endian)
+(binary-types:define-unsigned extended-packet-number 1 :little-endian)
+(binary-types:define-unsigned offset 3 :big-endian)
 
 (binary-types:define-binary-class packet-header ()
   ((segment-number :binary-type segment-number)
-   (packet-number :binary-type binary-types:u8)))
+   (packet-number :binary-type binary-types:u8)
+   (owner :binary-type binary-types:u8)
+   (tier :binary-type tier)
+   (mystery-byte-1 :binary-type binary-types:u8)
+   (mystery-byte-2 :binary-type binary-types:u8)
+   (flags :binary-type binary-types:u8)
+   (extended-packet-number :binary-type extended-packet-number)
+   (offset :binary-type offset)))
 
-(defun dump-pak (pathname)
+(defun pak-to-nabu (pathname &key (if-exists :error) (debug nil))
   (with-open-file (f pathname :element-type '(unsigned-byte 8))
-    ;; file id bytes
-    (handler-case
-      (loop
-        (let* ((raw-length (binary-types:read-binary 'le-word f))
-               (packet (make-array raw-length :element-type '(unsigned-byte 8))))
-          (assert (eql (read-sequence packet f) raw-length))
-          (format t "LENGTH: ~A~%" raw-length)
-          (flex:with-input-from-sequence (header-stream packet)
-            (let ((header (binary-types:read-binary 'packet-header header-stream)))
-              (format t "SEGMENT: ~A PACKET: ~A~%"
-                      (slot-value header 'segment-number) (slot-value header 'packet-number))))))
-      (end-of-file ()))))
+    (with-open-file (nabu-file (merge-pathnames (make-pathname :type "nabu") pathname)
+                               :direction :output :if-exists if-exists :element-type '(unsigned-byte 8))
+      (format t "; Writing ~A~%" (pathname nabu-file))
+      ;; file id bytes
+      (handler-case
+          (loop
+            (let* ((raw-length (binary-types:read-binary 'packet-length f))
+                   (packet (make-array raw-length :element-type '(unsigned-byte 8))))
+              (assert (eql (read-sequence packet f) raw-length))
+              (flex:with-input-from-sequence (packet-stream packet)
+                (when debug
+                  (format t "LENGTH: ~A~%" raw-length)
+                  (with-slots (segment-number packet-number owner tier mystery-byte-1
+                               mystery-byte-2 flags extended-packet-number offset)
+                      (binary-types:read-binary 'packet-header packet-stream)
+                    (format t "SEGMENT: ~A PACKET: ~A~%" segment-number packet-number)
+                    (format t "OWNER: ~A TIER: ~8,'0X~%" owner tier)
+                    (format t "FLAGS: ~8,'0B EXTENDED-PACKET-NUMBER: ~A OFFSET: ~A~%" flags extended-packet-number offset)))
+                (let* ((payload-length (- raw-length 18))
+                       (buf (make-array payload-length :element-type '(unsigned-byte 8))))
+                  (assert (= (read-sequence buf packet-stream) payload-length))
+                  (write-sequence buf nabu-file)))))
+        (end-of-file ())))))

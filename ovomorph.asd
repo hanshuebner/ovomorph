@@ -21,6 +21,7 @@
                :usocket-server
                :lparallel
                :binary-types
+               :cserial-port
                #+linux
                :cl-gpiod
                :flexi-streams)
