@@ -3,6 +3,49 @@
 (defpackage :nabu
   (:use :cl :alexandria))
 
+(in-package :cserial-port)
+
+;; monkey patch cserial-port library
+
+(defmethod %open ((s posix-serial)
+		  &key
+		    name)
+  (let* ((ratedef (%baud-rate s))
+	 (fd (open name (logior o-rdwr o-noctty))))
+    (when (= -1 fd)
+      (error "~A open error!!" name))
+    (setf (slot-value s 'fd) fd)
+    (with-foreign-object (tty '(:struct termios))
+      (unless (and
+	       (zerop (tcgetattr fd tty))
+	       (zerop (cfsetispeed tty ratedef))
+	       (zerop (cfsetospeed tty ratedef)))
+	(%close fd)
+	(error "~A setspeed error!!" name))
+
+      (with-foreign-slots ((lflag iflag cflag oflag cc) tty (:struct termios))
+	(setf lflag (off lflag ICANON ECHO ECHONL IEXTEN ISIG))
+	(setf iflag (off iflag BRKINT ICRNL INPCK ISTRIP IXON))
+	(setf cflag (logior (off cflag PARENB CSTOPB CSIZE)
+			    (%data-bits s)
+			    (%parity s)
+                            (%stop-bits s)
+			    HUPCL CLOCAL))
+	(setf oflag (off oflag OPOST))
+	(setf (mem-aref cc 'cc-t VTIME) 0)
+	(setf (mem-aref cc 'cc-t VMIN) 1))
+      (unless (zerop (tcsetattr fd TCSANOW tty))
+	(%close fd)
+	(error "unable to setup serial port"))
+      s)))
+
+(defmethod %stop-bits ((s posix-serial) &optional stop-bits)
+  (let ((val (or stop-bits (serial-stop-bits s))))
+    (case val
+      (1 0)
+      (2 CSTOPB)
+      (t (error "unsupported stop bits ~A" val)))))
+
 (in-package :nabu)
 
 (defvar *crc-table*
