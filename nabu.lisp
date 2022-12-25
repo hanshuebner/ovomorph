@@ -72,15 +72,15 @@
        (format t "; ~A~%" ',name)
        ,@body)))
 
-(define-handler #x83 nabu-initialize (stream)
-  (send-ack stream)
-  (write-byte #xe4 stream))
-
-(define-handler #x82 get-ready (stream)
-  (send-ack stream))
-
 (define-handler #x81 channel-confirm (stream)
   (send-ack stream))
+
+(define-handler #x82 get-status (stream)
+  (send-ack stream))
+
+(define-handler #x83 set-status (stream)
+  (send-ack stream)
+  (write-byte #xe4 stream))
 
 (define-handler #x8f whats-up (stream))
 
@@ -203,7 +203,7 @@
   (write-sequence #(#x10 #xe1) stream))
 
 (define-handler #x85 change-channel (stream)
-  (write-sequence #(#x10 #x06) stream)
+  (send-ack stream)
   (finish-output stream)
   (let ((channel (read-short stream)))
     (format t "; channel: ~A~%" channel)
@@ -232,12 +232,23 @@
           (setf server-message-stream (make-message)))))))
 
 (define-handler #xa1 echo-line (stream)
-  (with-open-stream (stream (flex:make-flexi-stream stream))
-    (loop for line = (read-line stream)
-          do (format t "Received [~A]~%" line)
-             (princ line stream)
-             (terpri stream)
-             (finish-output stream))))
+  (let ((message-buffer (make-string-output-stream)))
+    (loop
+      (let ((c (read-byte stream)))
+        (case c
+          (#x83
+           (format t "; NABU PC reset~%")
+           (return))
+          (#x0a
+           (let ((line (get-output-stream-string message-buffer)))
+             (format t "; Received [~A]~%" line)
+             (loop for c across line
+                   do (write-byte (char-code c) stream)
+                   finally (write-byte #x0a stream)
+                           (finish-output stream))))
+          (otherwise
+           (when (<= 32 c 126)
+             (write-char (code-char c) message-buffer))))))))
 
 (defun handle-nabu (stream)
   (handler-case
@@ -245,7 +256,6 @@
         (catch 'main-loop
           (handle-byte stream (read-byte stream))
           (finish-output stream)))
-    #+ (or)
     (error (e)
       (format t "; caught error ~A~%" e))))
 
@@ -282,10 +292,14 @@
   (setf *server* (bt:make-thread (lambda () (run-server port)) :name (format nil "NABU Listener on port ~A" port))))
 
 (defun handle-serial-port (port-name)
-  (cserial-port:with-serial (serial port-name :baud-rate 115200 :stop-bits 2)
-    (handle-nabu (sb-sys:make-fd-stream (cserial-port::serial-fd serial)
+  (let ((serial (cserial-port:open-serial port-name
+                  :baud-rate 115200
+                  :data-bits 8
+                  :stop-bits 2)))
+    (with-open-stream (stream (sb-sys:make-fd-stream (cserial-port::serial-fd serial)
                                         :input t :output t
-                                        :element-type '(unsigned-byte 8)))))
+                                        :element-type '(unsigned-byte 8)))
+      (handle-nabu stream))))
 
 (binary-types:define-unsigned packet-length 2 :little-endian)
 
