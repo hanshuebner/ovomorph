@@ -48,6 +48,8 @@
 
 (in-package :nabu)
 
+;; CRC handling
+
 (defvar *crc-table*
   #(#x0000 #x1021 #x2042 #x3063 #x4084 #x50a5 #x60c6 #x70e7 #x8108 #x9129 #xa14a #xb16b
     #xc18c #xd1ad #xe1ce #xf1ef #x1231 #x0210 #x3273 #x2252 #x52b5 #x4294 #x72f7 #x62d6
@@ -80,6 +82,27 @@
                    crc (logand (logxor crc (aref *crc-table* index)) #xffff)))
         finally (return crc)))
 
+;; Data types used on the wire
+
+(binary-types:define-unsigned packet-length 2 :little-endian)
+(binary-types:define-unsigned storage-size 2 :little-endian)
+
+(binary-types:define-unsigned segment-number 3 :big-endian)
+(binary-types:define-unsigned tier 4 :big-endian)
+(binary-types:define-unsigned extended-packet-number 1 :little-endian)
+(binary-types:define-unsigned offset 3 :big-endian)
+
+(binary-types:define-binary-class packet-header ()
+  ((segment-number :binary-type segment-number)
+   (packet-number :binary-type binary-types:u8)
+   (owner :binary-type binary-types:u8)
+   (tier :binary-type tier)
+   (mystery-byte-1 :binary-type binary-types:u8)
+   (mystery-byte-2 :binary-type binary-types:u8)
+   (flags :binary-type binary-types:u8)
+   (extended-packet-number :binary-type extended-packet-number)
+   (offset :binary-type offset)))
+
 (defconstant +escape+ #x10)
 
 (defun add-crc (packet)
@@ -98,7 +121,7 @@
   (let ((value (read-byte stream)))
     (setf (ldb (byte 8 8) value) (read-byte stream))
     (setf (ldb (byte 8 16) value) (read-byte stream))
-    (setf (ldb (byte 8 16) value) (read-byte stream))
+    (setf (ldb (byte 8 24) value) (read-byte stream))
     value))
 
 (defgeneric handle-byte (stream byte)
@@ -119,7 +142,9 @@
   (send-ack stream))
 
 (define-handler #x82 get-status (stream)
-  (send-ack stream))
+  (send-ack stream)
+  (write-byte (logior (if *select-channel-p* #x80 #x00) #x1f) stream)
+  (write-sequence #(#x10 #xe1) stream))
 
 (define-handler #x83 set-status (stream)
   (send-ack stream)
@@ -128,6 +153,13 @@
 (define-handler #x8f whats-up (stream))
 
 (define-handler #x05 more-ceremony (stream)
+  (write-byte #xe4 stream))
+
+(define-handler #x0f unknown-0f (stream)
+  ; ignore for now
+  )
+
+(define-handler #x1e in-menu (stream)
   (write-byte #xe4 stream))
 
 (defvar *time-packet* #(#x7F #xFF #xFF #x00 #x00 #x7F #xFF #xFF
@@ -139,6 +171,7 @@
   (write-byte #xe4 stream))
 
 (defun send-time-packet (stream)
+  (format t "; sending time packet~%")
   (send-packet-prolog stream)
   (write-sequence (add-crc *time-packet*) stream)
   (send-packet-epilog stream))
@@ -241,10 +274,6 @@
 
 (defvar *select-channel-p* nil)
 
-(define-handler #x01 channel-status (stream)
-  (write-byte (logior (if *select-channel-p* #x80 #x00) #x1f) stream)
-  (write-sequence #(#x10 #xe1) stream))
-
 (define-handler #x85 change-channel (stream)
   (send-ack stream)
   (finish-output stream)
@@ -292,6 +321,47 @@
           (otherwise
            (when (<= 32 c 126)
              (write-char (code-char c) message-buffer))))))))
+
+;; Storage handling compatible to DJsure's NABU-LIB
+
+(defvar *buffers* (make-array 256 :initial-element #()))
+
+(define-handler #xa3 request-store-http-get (stream)
+  (handler-case
+      (let* ((index (read-byte stream))
+             (url-length (read-byte stream))
+             (url (make-string url-length)))
+        (loop for i below url-length
+              do (setf (aref url i) (code-char (read-byte stream))))
+        (format t "; request URL ~A~%" url)
+        (setf (aref *buffers* index) (flex:string-to-octets (format nil "Hello world, this is from ~A~%" url)))
+        (write-byte 1 stream))
+    (error (e)
+      (format t "; failed to get URL: ~A" e)
+      (write-byte 0 stream))))
+
+(define-handler #xa4 request-store-get-size (stream)
+  (let ((index (read-byte stream)))
+    (binary-types:write-binary 'storage-size stream (length (aref *buffers* index)))))
+
+
+(define-handler #xa5 request-store-get-data (stream)
+  (let* ((index (read-byte stream))
+         (start (binary-types:read-binary 'storage-size stream))
+         (length (binary-types:read-binary 'storage-size stream))
+         (end (+ start length))
+         (buffer (aref *buffers* index)))
+    #+slow-nabu
+    (sleep .001)
+    (format t "; index ~A total ~A start ~A end ~A~%" index (length buffer) start end)
+    #+slow-nabu
+    (loop for c across (subseq buffer start end)
+          do (write-byte c stream)
+             (finish-output stream)
+             (sleep .001))
+    #-slow-nabu
+    (write-sequence buffer stream
+                    :start start :end end)))
 
 (defun handle-nabu (stream)
   (handler-case
@@ -344,24 +414,6 @@
                                         :element-type '(unsigned-byte 8)))
       (handle-nabu stream))))
 
-(binary-types:define-unsigned packet-length 2 :little-endian)
-
-(binary-types:define-unsigned segment-number 3 :big-endian)
-(binary-types:define-unsigned tier 4 :big-endian)
-(binary-types:define-unsigned extended-packet-number 1 :little-endian)
-(binary-types:define-unsigned offset 3 :big-endian)
-
-(binary-types:define-binary-class packet-header ()
-  ((segment-number :binary-type segment-number)
-   (packet-number :binary-type binary-types:u8)
-   (owner :binary-type binary-types:u8)
-   (tier :binary-type tier)
-   (mystery-byte-1 :binary-type binary-types:u8)
-   (mystery-byte-2 :binary-type binary-types:u8)
-   (flags :binary-type binary-types:u8)
-   (extended-packet-number :binary-type extended-packet-number)
-   (offset :binary-type offset)))
-
 (defun pak-to-nabu (pathname &key (if-exists :error) (debug nil))
   (with-open-file (f pathname :element-type '(unsigned-byte 8))
     (with-open-file (nabu-file (merge-pathnames (make-pathname :type "nabu") pathname)
@@ -384,6 +436,7 @@
                     (format t "FLAGS: ~8,'0B EXTENDED-PACKET-NUMBER: ~A OFFSET: ~A~%" flags extended-packet-number offset)))
                 (let* ((payload-length (- raw-length 18))
                        (buf (make-array payload-length :element-type '(unsigned-byte 8))))
+                  (format t "PAYLOAD-LENGTH ~A~%" payload-length)
                   (assert (= (read-sequence buf packet-stream) payload-length))
                   (write-sequence buf nabu-file)))))
         (end-of-file ())))))
