@@ -344,13 +344,18 @@
   (let ((index (read-byte stream)))
     (binary-types:write-binary 'storage-size stream (length (aref *buffers* index)))))
 
+(defun auto-extend-buffer (index end)
+  (symbol-macrolet ((buffer (aref *buffers* index)))
+    (when (< (length buffer) end)
+      (setf buffer (adjust-array buffer end :initial-element 0)))
+    buffer))
 
 (define-handler #xa5 request-store-get-data (stream)
   (let* ((index (read-byte stream))
          (start (binary-types:read-binary 'storage-size stream))
          (length (binary-types:read-binary 'storage-size stream))
          (end (+ start length))
-         (buffer (aref *buffers* index)))
+         (buffer (auto-extend-buffer index end)))
     #+slow-nabu
     (sleep .001)
     (format t "; index ~A total ~A start ~A end ~A~%" index (length buffer) start end)
@@ -362,6 +367,29 @@
     #-slow-nabu
     (write-sequence buffer stream
                     :start start :end end)))
+
+(define-handler #xa6 request-store-put-data (stream)
+  (let* ((index (read-byte stream))
+         (start (binary-types:read-binary 'storage-size stream))
+         (length (binary-types:read-binary 'storage-size stream))
+         (end (+ start length))
+         (buffer (auto-extend-buffer index end)))
+    (format t "; index ~A total ~A start ~A end ~A~%" index (length buffer) start end)
+    (format t "; position before: ~A~%" (file-position stream))
+    (format t "; position after: ~A~%" (read-sequence buffer stream :start start :end end))
+    ;; write '1' to confirm
+    (write-byte 1 stream)))
+
+(define-handler #xa7 request-store-open-file (stream)
+  (let* ((index (read-byte stream))
+         (pathname-length (read-byte stream))
+         (pathname (make-string pathname-length)))
+    (loop for i below pathname-length
+          do (setf (aref pathname i) (code-char (read-byte stream))))
+    (format t "; pathname ~A~%" pathname)
+    (setf (aref *buffers* index) (flex:string-to-octets (format nil "Hello world, this is from FILE ~A~%" pathname)))
+    ;; write '1' to confirm
+    (write-byte 1 stream)))
 
 (defun handle-nabu (stream)
   (handler-case
