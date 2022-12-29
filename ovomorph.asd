@@ -22,6 +22,7 @@
                :lparallel
                :binary-types
                :cserial-port
+               :drakma
                #+linux
                :cl-gpiod
                :flexi-streams)

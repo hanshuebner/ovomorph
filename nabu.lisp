@@ -334,8 +334,16 @@
         (loop for i below url-length
               do (setf (aref url i) (code-char (read-byte stream))))
         (format t "; request URL ~A~%" url)
-        (setf (aref *buffers* index) (flex:string-to-octets (format nil "Hello world, this is from ~A~%" url)))
-        (write-byte 1 stream))
+        (multiple-value-bind (response status) (drakma:http-request url :force-binary t)
+          (cond
+            ((= status 200)
+             (format t "; received ~A bytes~%" (length response))
+             (setf (aref *buffers* index) response)
+             (write-byte 1 stream))
+            (t
+             (format t "; could not retrieve, HTTP status ~A~%" status)
+             (setf (aref *buffers* index) #())
+             (write-byte 0 stream)))))
     (error (e)
       (format t "; failed to get URL: ~A" e)
       (write-byte 0 stream))))
