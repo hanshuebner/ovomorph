@@ -1,7 +1,9 @@
 ;; -*- Lisp -*-
 
 (defpackage :nabu
-  (:use :cl :alexandria))
+  (:use :cl :alexandria)
+  (:export #:create-server
+           #:handle-serial-port))
 
 (in-package :cserial-port)
 
@@ -132,34 +134,34 @@
 (defun send-ack (stream)
   (write-sequence #(#x10 #x06) stream))
 
-(defmacro define-handler (byte name (stream) &body body)
+(defmacro define-legacy-handler (byte name (stream) &body body)
   (with-gensyms (byte*)
     `(defmethod handle-byte (,stream (,byte* (eql ,byte)))
        (format t "; ~A~%" ',name)
        ,@body)))
 
-(define-handler #x81 channel-confirm (stream)
+(define-legacy-handler #x81 channel-confirm (stream)
   (send-ack stream))
 
-(define-handler #x82 get-status (stream)
+(define-legacy-handler #x82 get-status (stream)
   (send-ack stream)
   (write-byte (logior (if *select-channel-p* #x80 #x00) #x1f) stream)
   (write-sequence #(#x10 #xe1) stream))
 
-(define-handler #x83 set-status (stream)
+(define-legacy-handler #x83 set-status (stream)
   (send-ack stream)
   (write-byte #xe4 stream))
 
-(define-handler #x8f whats-up (stream))
+(define-legacy-handler #x8f whats-up (stream))
 
-(define-handler #x05 more-ceremony (stream)
+(define-legacy-handler #x05 more-ceremony (stream)
   (write-byte #xe4 stream))
 
-(define-handler #x0f unknown-0f (stream)
+(define-legacy-handler #x0f unknown-0f (stream)
   ; ignore for now
   )
 
-(define-handler #x1e in-menu (stream)
+(define-legacy-handler #x1e in-menu (stream)
   (write-byte #xe4 stream))
 
 (defvar *time-packet* #(#x7F #xFF #xFF #x00 #x00 #x7F #xFF #xFF
@@ -261,7 +263,7 @@
                             stream)
             (send-packet-epilog stream)))))))
 
-(define-handler #x84 packet-request (stream)
+(define-legacy-handler #x84 packet-request (stream)
   (send-ack stream)
   (finish-output stream)
   (let* ((request (read-long stream))
@@ -274,130 +276,18 @@
 
 (defvar *select-channel-p* nil)
 
-(define-handler #x85 change-channel (stream)
+(define-legacy-handler #x85 change-channel (stream)
   (send-ack stream)
   (finish-output stream)
   (let ((channel (read-short stream)))
     (format t "; channel: ~A~%" channel)
     (send-confirm stream)))
 
+(define-legacy-handler #xa7 switch-to-nhacp (stream)
+  (nhacp:conversation stream))
+
 (defun make-message ()
   (make-string-input-stream (format nil "Current time: ~A~%" (get-universal-time))))
-
-(define-handler #xa0 chat-started (stream)
-  (with-open-stream (stream (flex:make-flexi-stream stream))
-    (let ((server-message-stream (make-message))
-          (client-message-stream (make-string-output-stream)))
-      (loop
-        (when-let ((c (read-char-no-hang stream)))
-          (if (member c '(#\NewLine #\Linefeed #\Return))
-              (let ((client-message (get-output-stream-string client-message-stream)))
-                (format t "Client message: ~A~%" client-message)
-                (setf client-message-stream (make-string-output-stream)
-                      server-message-stream (make-string-input-stream (format nil "~%~A~%" client-message))))
-              (princ c client-message-stream)))
-        (if-let ((c (read-char server-message-stream nil)))
-          (progn 
-            (write-char c stream)
-            (finish-output stream)
-            (sleep .1))
-          (setf server-message-stream (make-message)))))))
-
-(define-handler #xa1 echo-line (stream)
-  (let ((message-buffer (make-string-output-stream)))
-    (loop
-      (let ((c (read-byte stream)))
-        (case c
-          (#x83
-           (format t "; NABU PC reset~%")
-           (return))
-          (#x0a
-           (let ((line (get-output-stream-string message-buffer)))
-             (format t "; Received [~A]~%" line)
-             (loop for c across line
-                   do (write-byte (char-code c) stream)
-                   finally (write-byte #x0a stream)
-                           (finish-output stream))))
-          (otherwise
-           (when (<= 32 c 126)
-             (write-char (code-char c) message-buffer))))))))
-
-;; Storage handling compatible to DJsure's NABU-LIB
-
-(defvar *buffers* (make-array 256 :initial-element #()))
-
-(define-handler #xa3 request-store-http-get (stream)
-  (handler-case
-      (let* ((index (read-byte stream))
-             (url-length (read-byte stream))
-             (url (make-string url-length)))
-        (loop for i below url-length
-              do (setf (aref url i) (code-char (read-byte stream))))
-        (format t "; request URL ~A~%" url)
-        (multiple-value-bind (response status) (drakma:http-request url :force-binary t)
-          (cond
-            ((= status 200)
-             (format t "; received ~A bytes~%" (length response))
-             (setf (aref *buffers* index) response)
-             (write-byte 1 stream))
-            (t
-             (format t "; could not retrieve, HTTP status ~A~%" status)
-             (setf (aref *buffers* index) #())
-             (write-byte 0 stream)))))
-    (error (e)
-      (format t "; failed to get URL: ~A" e)
-      (write-byte 0 stream))))
-
-(define-handler #xa4 request-store-get-size (stream)
-  (let ((index (read-byte stream)))
-    (binary-types:write-binary 'storage-size stream (length (aref *buffers* index)))))
-
-(defun auto-extend-buffer (index end)
-  (symbol-macrolet ((buffer (aref *buffers* index)))
-    (when (< (length buffer) end)
-      (setf buffer (adjust-array buffer end :initial-element 0)))
-    buffer))
-
-(define-handler #xa5 request-store-get-data (stream)
-  (let* ((index (read-byte stream))
-         (start (binary-types:read-binary 'storage-size stream))
-         (length (binary-types:read-binary 'storage-size stream))
-         (end (+ start length))
-         (buffer (auto-extend-buffer index end)))
-    #+slow-nabu
-    (sleep .001)
-    (format t "; index ~A total ~A start ~A end ~A~%" index (length buffer) start end)
-    #+slow-nabu
-    (loop for c across (subseq buffer start end)
-          do (write-byte c stream)
-             (finish-output stream)
-             (sleep .001))
-    #-slow-nabu
-    (write-sequence buffer stream
-                    :start start :end end)))
-
-(define-handler #xa6 request-store-put-data (stream)
-  (let* ((index (read-byte stream))
-         (start (binary-types:read-binary 'storage-size stream))
-         (length (binary-types:read-binary 'storage-size stream))
-         (end (+ start length))
-         (buffer (auto-extend-buffer index end)))
-    (format t "; index ~A total ~A start ~A end ~A~%" index (length buffer) start end)
-    (format t "; position before: ~A~%" (file-position stream))
-    (format t "; position after: ~A~%" (read-sequence buffer stream :start start :end end))
-    ;; write '1' to confirm
-    (write-byte 1 stream)))
-
-(define-handler #xa7 request-store-open-file (stream)
-  (let* ((index (read-byte stream))
-         (pathname-length (read-byte stream))
-         (pathname (make-string pathname-length)))
-    (loop for i below pathname-length
-          do (setf (aref pathname i) (code-char (read-byte stream))))
-    (format t "; pathname ~A~%" pathname)
-    (setf (aref *buffers* index) (flex:string-to-octets (format nil "Hello world, this is from FILE ~A~%" pathname)))
-    ;; write '1' to confirm
-    (write-byte 1 stream)))
 
 (defun handle-nabu (stream)
   (handler-case

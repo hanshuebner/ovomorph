@@ -23,6 +23,7 @@
                :binary-types
                :cserial-port
                :drakma
+               :str
                #+linux
                :cl-gpiod
                :flexi-streams)
@@ -35,4 +36,5 @@
                (:file "disk")
                (:file "time")
                (:file "shell")
+               (:file "nhacp")
                (:file "nabu")))
