@@ -283,7 +283,7 @@
     (format t "; channel: ~A~%" channel)
     (send-confirm stream)))
 
-(define-legacy-handler #xa7 switch-to-nhacp (stream)
+(define-legacy-handler #xaf switch-to-nhacp (stream)
   (nhacp:conversation stream))
 
 (defun make-message ()
@@ -302,7 +302,7 @@
 (defvar *listen-socket*)
 
 (defun run-server (port)
-  (let* ((*listen-socket* (usocket:socket-listen "127.0.0.1" port)))
+  (let* ((*listen-socket* (usocket:socket-listen "127.0.0.1" port :reuse-address t)))
     (format t "; NABU listener on port ~A starting~%" port)
     (handler-case
          (loop
