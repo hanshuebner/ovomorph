@@ -37,4 +37,5 @@
                (:file "time")
                (:file "shell")
                (:file "nhacp")
+               (:file "nabu-comms")
                (:file "nabu")))
