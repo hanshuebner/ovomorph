@@ -57,4 +57,3 @@
 
 (define-handler end-protocol (stream)
   (throw 'end-protocol nil))
-

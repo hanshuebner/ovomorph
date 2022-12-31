@@ -8,16 +8,6 @@
 
 (defconstant +max-payload-size+ 32768)
 
-(defvar *type-tag-to-name*)
-
-(eval-when (:load-toplevel)
-  (setf *type-tag-to-name*
-      (loop for symbol being the symbols of *package*
-            if (str:starts-with? (string '#:+NHACP-) (string symbol))
-              collect (symbol-value symbol)
-              and
-                collect (ppcre:regex-replace "^\\+NHACP-(.*)\\+$" (string-upcase symbol) "\\1"))))
-
 (defun write-bytes (string stream)
   (write-sequence (flex:string-to-octets string) stream))
 
@@ -52,7 +42,7 @@
     (make-error-response "Unknown NAHCP request tag 0x~2,'0X" type-tag))
   (:method :before (type-tag stream)
     (format t "; NHACP Request: ~A~%"
-            (getf *type-tag-to-name* type-tag (format nil "0x~2,'0X" type-tag)))))
+            (gethash type-tag *type-tag-to-name* (format nil "0x~2,'0X" type-tag)))))
 
 (defmacro define-handler (name (stream) &body body)
   (with-gensyms (type-tag)
