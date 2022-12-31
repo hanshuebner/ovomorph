@@ -65,17 +65,21 @@
   (write-sequence response stream)
   (finish-output stream))
 
+(defun ensure-response-array (response)
+  (if (typep response '(array))
+      response
+      (make-error-response "Handler returned no valid response array")))
+
 (defun handle-stream (stream)
   (let* ((frame-length (binary-types:read-binary 'frame-length stream))
          (type-tag (read-byte stream))
-         (payload (read-payload stream (1- frame-length)))
-         (response (flex:with-input-from-sequence (stream payload)
-                     (handle-request type-tag stream)))
-         (response (if (typep response '(array))
-                       response
-                       (make-error-response "Handler returned no response"))))
-    (write-response response stream)
-    (finish-output stream)))
+         (payload (read-payload stream (1- frame-length))))
+    (format t "Request: frame-length ~D type-tag ~2,'0X payload ~A~%" frame-length type-tag payload)
+    (let ((response (ensure-response-array (flex:with-input-from-sequence (stream payload)
+                                             (handle-request type-tag stream)))))
+      (format t "Response: ~A~%" response)
+      (write-response response stream)
+      (finish-output stream))))
 
 (defun send-adapter-id (stream)
   (let ((adapter-id (format-bytes "OVOMORPH running on ~A" (osicat-posix:gethostname))))
