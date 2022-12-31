@@ -39,4 +39,5 @@
                (:file "nhacp")
                (:file "nabu-comms")
                (:file "nhacp-handlers")
+               (:file "storage-handlers")
                (:file "nabu")))

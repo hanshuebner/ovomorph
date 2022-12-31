@@ -49,17 +49,6 @@
     `(defmethod handle-request ((,type-tag (eql ,(find-symbol (format nil "+~A-~A+" '#:NHACP-REQ name)))) ,stream)
        ,@body)))
 
-(defvar *buffers* (make-array 256 :initial-element #()))
-
-(defmacro with-buffer ((var index) &body body)
-  `(symbol-macrolet ((,var (aref *buffers* ,index)))
-     ,@body))
-
-(defun auto-extend-buffer (index end)
-  (with-buffer (buffer index)
-    (when (< (length buffer) end)
-      (setf buffer (adjust-array buffer end :initial-element 0)))))
-
 (binary-types:define-unsigned frame-length 2 :little-endian)
 
 (defun read-payload (stream length)
@@ -71,7 +60,7 @@
     payload))
 
 (defun write-response (response stream)
-  (format t "; Response: 0x~2,'0X (~A bytes)~%" (aref response 0) (length response))
+  (format t "; Response: ~A (~A bytes)~%" (gethash (aref response 0) *type-tag-to-name* (aref response 0)) (length response))
   (binary-types:write-binary 'frame-length stream (length response))
   (write-sequence response stream)
   (finish-output stream))
