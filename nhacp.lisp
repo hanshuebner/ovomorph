@@ -28,7 +28,7 @@
         (write-sequence payload s)))))
 
 (defun make-error-response (format &rest args)
-  (let ((message (apply #'format nil format args)))
+  (let ((message (subseq (apply #'format nil format args) 0 255)))
     (format t "; Returning error to NABU: ~A~%" message)
     (make-response 'error-response
                    (flex:string-to-octets message)
@@ -42,9 +42,14 @@
     (make-error-response "Unknown NAHCP request tag 0x~2,'0X" type-tag))
   (:method :before (type-tag stream)
     (format t "; NHACP Request: ~A~%"
-            (gethash type-tag *type-tag-to-name* (format nil "0x~2,'0X" type-tag)))))
+            (gethash type-tag *type-tag-to-name* (format nil "0x~2,'0X" type-tag))))
+  (:method :around (type-tag stream)
+    (handler-case
+        (call-next-method)
+      (error (e)
+        (make-error-response "~A" e)))))
 
-(defmacro define-handler (name (stream) &body body)
+(defmacro define-request-handler (name (stream) &body body)
   (with-gensyms (type-tag)
     `(defmethod handle-request ((,type-tag (eql ,(find-symbol (format nil "+~A-~A+" '#:NHACP-REQ name)))) ,stream)
        ,@body)))
@@ -74,9 +79,11 @@
   (let* ((frame-length (binary-types:read-binary 'frame-length stream))
          (type-tag (read-byte stream))
          (payload (read-payload stream (1- frame-length))))
+    #+nahcp-debug-frames
     (format t "Request: frame-length ~D type-tag ~2,'0X payload ~A~%" frame-length type-tag payload)
     (let ((response (ensure-response-array (flex:with-input-from-sequence (stream payload)
                                              (handle-request type-tag stream)))))
+      #+nhacp-debug-frames
       (format t "Response: ~A~%" response)
       (write-response response stream)
       (finish-output stream))))

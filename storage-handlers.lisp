@@ -29,10 +29,10 @@
   ((buf :reader buf)))
 
 (defmethod initialize-instance :after ((handler drakma-handler) &key url)
+  (format t "; Opening URL ~A~%" url)
   (multiple-value-bind (response status) (drakma:http-request url :force-binary t)
     (cond
       ((= status 200)
-       (format t "; received ~A bytes~%" (length response))
        (setf (slot-value handler 'buf) response
              (slot-value handler 'length) (length response)))
       (t
@@ -55,15 +55,12 @@
                                     :directory (when-let ((directory (pathname-directory input-pathname)))
                                                  (cons :relative (rest directory)))))))
 
-(defun determine-file-size (path)
-  (with-open-file (file path :if-does-not-exist nil)
-    (when file
-      (file-length file))))
-
 (defmethod initialize-instance :after ((handler file-handler) &key url)
-  (with-slots (path length) handler
-    (setf path (make-pathname-from-url url)
-          length (or (determine-file-size path) 0))))
+  (format t "; Opening file ~A~%" url)
+  (let ((path (make-pathname-from-url url)))
+    (with-open-file (file path :direction :io :if-does-not-exist :error)
+      (setf (slot-value handler 'path) path
+            (slot-value handler 'length) (file-length file)))))
 
 (defmethod handler-get ((handler file-handler) offset length)
   (with-open-file (file (path handler) :element-type '(unsigned-byte 8))
